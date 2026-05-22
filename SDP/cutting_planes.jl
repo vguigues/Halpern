@@ -3,6 +3,7 @@ using JuMP
 using LinearAlgebra
 using Random
 using Base.Threads
+using LaTeXStrings
 
 include("plot.jl")
 include("util.jl")
@@ -16,10 +17,18 @@ const mt = false
 
 function projection_cone_sdp(X::AbstractMatrix)
 
+X.=(X+X')/2    
 m,n=size(X)
 result = eigen(X)
 U=result.vectors
-s=result.values
+s=real.(result.values)
+# ipart=imag.(result.values)
+# println("Value of eigenvalue r part: $s\n")
+# println("Value of eigenvalue i part: $ipart\n")main
+
+
+
+
 aux=zeros(n)
 for i in 1:n
     aux[i]=max(0,s[i]) 
@@ -427,7 +436,29 @@ find_circuncenter(x::AbstractMatrix)
 Given m points x ∈ ℜ^{n}, finds the equidistant point to all points x.
 - x::AbstractMatrix:    Set of points x ∈ ℜ^{n}
 """
-function find_circuncenter(x::AbstractMatrix)
+
+
+function find_circuncenter2(x::AbstractArray)
+    m = size(x, 1) - 1
+    M = similar(x, m, m)
+    b = similar(x, m)
+    x_0 = x[1, :,:]
+    for i in 1:m
+        for j in 1:m
+            M[i, j] = dot(x[j+1, :,:] .- x_0, x[i+1, :,:] .- x_0)
+        end
+        b[i] = 0.5*dot(x[i+1, :,:] .- x_0,x[i+1, :,:] .- x_0)
+    end
+    result = similar(x_0)
+    α = M \ b
+    result = copy(x_0)
+    for j in 1:m
+        result .+= α[j] .* (x[j+1, :,:] .- x_0)
+    end 
+    return result
+end
+
+function find_circuncenter(x::AbstractArray)
     m = size(x, 1) - 1
     M = similar(x, m, m)
     b = similar(x, m)
@@ -481,10 +512,7 @@ Computes the reflection of x given a projected point
 - x::AbstractVector:                current point
 - projection::AbstractVector:       projected point
 """
-function reflection(x::AbstractVector, projection::AbstractVector)
-    if size(x) != size(projection)
-        return error("Dimension mismatch at reflection: size(x) = $(size(x)), size(projection) = $(size(projection))")
-    end
+function reflection(x::AbstractMatrix, projection::AbstractMatrix)
     return 2 * projection .- x
 end
 
@@ -547,6 +575,17 @@ function elipsoid_product_space_projection(z::AbstractVector, y::AbstractMatrix,
         Z[:, i] .= elipsoid_projection(Y[:, i], y[i, :], Q[i, :, :], k[i], env)
     end
     return vec(Z)
+end
+
+
+function update_crm2!(X0::AbstractMatrix,z::AbstractMatrix,A::AbstractArray,m::Int,b::AbstractVector,iter::Int)
+    P = zeros(3,m,m)
+    P[1, :,:] .= z
+    P[2, :,:] .= reflection(z,projection_cone_sdp(z))
+    P[3, :,:] .= reflection(P[2, :,:],projection_affine(P[2, :,:],A,m,b))
+    z .= find_circuncenter2(P)
+    z.=(1.0/(1.5*iter))*X0+(1.0-(1.0/(1.5*iter)))*z
+    return z
 end
 
 
@@ -702,20 +741,23 @@ Finds a point x in the intersection of elipsoids (y_i,Q_i,k_i) using alternating
 """
 
 
-
 function solve_alt_proj_halpern(C::AbstractMatrix,A::AbstractArray,b::AbstractVector,n::Int,max_iter::Int,epsilon::Float64,target::AbstractMatrix)
     
     start_time = time()
     X = copy(C)
+    Xs = Vector{Matrix{Float64}}()
     iter = 1
-    #while (norm(target-X)>epsilon)
-    while (iter<=max_iter)
-        println("Iteration: $iter")
-        update_alt_proj_halpern!(X,C,A,n,b,iter)
+    while (sqrt(dot(target-X,target-X))>epsilon)
+        println("$(sqrt(dot(target-X,target-X)))")
+        # while (iter<=max_iter)
+        # println("Iteration: $iter")
+        X=update_alt_proj_halpern!(X,C,A,n,b,iter)
+        push!(Xs,X)
         iter += 1
+        println("Iteration: $iter")
     end
     elapsed=time()-start_time
-    return X,elapsed
+    return Xs,elapsed
 end
 
 
@@ -812,6 +854,22 @@ function solve_sc_crm_halpern(x0::AbstractVector,A::AbstractArray,b::AbstractVec
 end
 
 
+
+function solve_crm2(C::AbstractMatrix,A::AbstractArray,b::AbstractVector,n::Int,epsilon::Float64,target::AbstractMatrix)
+    x = copy(C)
+    iter = 1
+    start_time=time()
+    
+    while (sqrt(dot(target-x,target-x))>epsilon)
+        x=update_crm2!(C,x,A,n,b,iter)
+        iter += 1
+    end
+    iter-=1
+    total_time=time()-start_time
+    return x, iter,total_time
+end
+
+
 function solve_crm(x0::AbstractVector, y::AbstractMatrix, Q::AbstractArray,
     k::AbstractVector, max_iter::UInt, env::Gurobi.Env, ϵ::Real)
     x = copy(x0)
@@ -871,10 +929,6 @@ function solve_crm(x0::AbstractVector, y::AbstractMatrix, Q::AbstractArray,
 
     return z, violation
 end
-
-
-
-
 
 function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt)
     env = Gurobi.Env()
@@ -1064,20 +1118,46 @@ end
 target=zeros(n,n)
 
 target,time_dijkstra=dijkstra(C,n,A,2,b,max_iter)
+println("Time Dijkstra: $time_dijkstra")
 
-X,time_halpern=solve_alt_proj_halpern(C,A,b,n,max_iter,epsilon,target)
+newtarget=zeros(n,n)
+
+  Xs,time_halpern=solve_alt_proj_halpern(C,A,b,n,max_iter,epsilon,target)
+  println("Time alt proj: $time_halpern")
+
+ z,iter,timecrm=solve_crm2(C,A,b,n,epsilon,target)
+ println("Time CRM: $timecrm")
+
+# return time_dijkstra,Xs,time_halpern,target
+return time_dijkstra,timecrm,time_halpern
+
 
 end
 
+
 function main()
     n::Int= 100
-    max_iter::Int= 100
+    max_iter::Int= 200
     Aux = randn(n, n)
     C = Aux * Aux'
-    epsilon=0.1
+    epsilon=5.0
     #test_cutting_plane(n, m, max_iter)
-    test_corr_matrix(C,n,max_iter,epsilon)
-    # sleep(1)
+    time_dijkstra,timecrm,time_halpern=test_corr_matrix(C,n,max_iter,epsilon)
+    println("Time dijkstra: $time_dijkstra")
+    println("Time CRM: $timecrm")  
+    # m=length(Xs)
+    # p = plot()
+    # x=1:m
+    # y=zeros(m)
+    # for k in 1:m
+    #     y[k]=sqrt(dot(Xs[k]-target,Xs[k]-target))
+    #     println("$(y[k])") 
+    # end
+    # xlabel!(p, "Iterations")
+    # # ylabel!(p, L"\sqrt{k}\,\|X_k - X_*\|")
+    # plot!(p, x, y, label="", ls=:dash, color=:black)
+    # savefig(p, "halpernsdp.pdf")
+    # # sleep(1)
     # test_find_circuncenter(m, n)
 end
 
