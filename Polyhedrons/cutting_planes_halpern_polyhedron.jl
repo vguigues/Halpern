@@ -2,6 +2,9 @@ using Gurobi
 using JuMP
 using LinearAlgebra
 using Random
+using BenchmarkTools
+using DataFrames, Dates
+
 using Base.Threads
 ENV["JULIA_NUM_THREADS"] = 12
 # include("plot.jl")
@@ -16,7 +19,7 @@ using Printf
 const EPS = 1e-5
 const mt = true
 
-
+##
 
 
 """
@@ -612,7 +615,13 @@ Finds a point x in the intersection of elipsoids (y_i,Q_i,k_i)
 - ϵ::Real               precision parameter
 """
 
-function solve_3pm_halpern(x0::AbstractVector, y::AbstractMatrix, Q::AbstractArray, max_iter::UInt, env::Gurobi.Env, ϵ::Real, target::AbstractVector)
+function solve_3pm_halpern(x0::AbstractVector, 
+						   y::AbstractMatrix, 
+						   Q::AbstractArray, 
+						   max_iter::UInt, 
+						   env::Gurobi.Env, 
+						   ϵ::Real, 
+						   target::AbstractVector) 
 	x = copy(x0)
 	k, m, n = size(Q)
 	violation = []
@@ -882,72 +891,73 @@ function solve_crm_halpern(x0::AbstractVector, y::AbstractMatrix, Q::AbstractArr
 	return z, violation, iter, time() - t_start
 end
 
-function test_cutting_plane2(n::UInt)
-	env = Gurobi.Env()
-	Q = zeros(240, 1, n)
-	y = zeros(240, 1)
-	Random.seed!(0)
-	x_star = randn(n)
-	for i in 1:200
-		A = randn(1, n)
-		b = A * x_star
-		Q[i, :, :] .= A
-		y[i, :] .= b
-	end
+# function test_cutting_plane2(n::UInt)
+# 	env = Gurobi.Env()
+# 	Q = zeros(240, 1, n)
+# 	y = zeros(240, 1)
+# 	Random.seed!(0)
+# 	x_star = randn(n)
+# 	for i in 1:200
+# 		A = randn(1, n)
+# 		b = A * x_star
+# 		Q[i, :, :] .= A
+# 		y[i, :] .= b
+# 	end
 
-	for i in 201:220
-		a = normalize(Q[i, :, :] + 0.001 * randn(1, n))
-		Q[i, :, :] .= a
-		y[i, :] .= a * x_star
-	end
+# 	for i in 201:220
+# 		a = normalize(Q[i, :, :] + 0.001 * randn(1, n))
+# 		Q[i, :, :] .= a
+# 		y[i, :] .= a * x_star
+# 	end
 
-	for i in 221:240
-		ind = rand(1:200)
-		aux = Q[ind, :, :] + 1e-2 * randn(1, n)
-		Q[i, :, :] .= normalize(aux)
-		y[i, :] .= aux * x_star
-	end
-	x0 = 20 * ones(1, n)
-	ϵ = 0.01
-	println("\tviolation x0 = ", max_violation(x0, y, Q))
-	# target = projection_intersection_polyhedron(x0, y, Q, 0.1, env)
-	target = projection_intersection_polyhedron(x_star, y, Q, 0.1, env)
-	println("\tTarget found!")
+# 	for i in 221:240
+# 		ind = rand(1:200)
+# 		aux = Q[ind, :, :] + 1e-2 * randn(1, n)
+# 		Q[i, :, :] .= normalize(aux)
+# 		y[i, :] .= aux * x_star
+# 	end
+# 	x0 = 20 * ones(1, n)
+# 	ϵ = 0.01
+# 	println("\tviolation x0 = ", max_violation(x0, y, Q))
+# 	# target = projection_intersection_polyhedron(x0, y, Q, 0.1, env)
+# 	target = projection_intersection_polyhedron(x_star, y, Q, 0.1, env)
+# 	println("\tTarget found!")
 
-	# x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, k, ϵ, target)
-	x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, ϵ, target)
-	@show violation_a3pm[end], time_a3pm, iter_a3pm
-
-
-	# time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
-	x_alt_proj, violation_alt, iter_alt, time_alt_proj = solve_alt_proj_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_alt[end], time_alt_proj, iter_alt
-
-	# time_cimmino = @elapsed x_cimmino, violation_cimmino, iter_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
-	x_cimmino, violation_cimmino, iter_cimmino, time_cimmino = solve_cimmino_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_cimmino[end], time_cimmino, iter_cimmino
-
-	# x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
-	x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_sccrm[end], time_sccrm, iter_sccrm
-
-	x_crm, violation_crm, iter_crm, time_crm = solve_crm_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_crm[end], time_crm, iter_crm
-
-	# x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, 0.1, y, Q, k, env, target)
-	x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, ϵ, y, Q, env, target)
-	@show violation_dijkstra[end], time_dijkstra, iter_dijkstra
-
-	println("\tA3PM: $time_a3pm s, iter = $iter_a3pm, violation = $(violation_a3pm[end])")
-	println("\tAlt Proj: $time_alt_proj s, iter = $iter_alt, violation = $(violation_alt[end])")
-	println("\tCimmino: $time_cimmino s, iter = $iter_cimmino, violation = $(violation_cimmino[end])")
-	println("\tSC CRM: $time_sccrm s, iter = $iter_sccrm, violation = $(violation_sccrm[end])")
-	println("\tDijkstra: $time_dijkstra s, iter = $iter_dijkstra, violation = $(violation_dijkstra[end])")
-	println("\tCRM: $time_crm s, iter = $iter_crm, violation = $(violation_crm[end])")
-end
+# 	# x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, k, ϵ, target)
+# 	x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, ϵ, target)
+# 	@show violation_a3pm[end], time_a3pm, iter_a3pm
 
 
-function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Real)
+# 	# time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
+# 	x_alt_proj, violation_alt, iter_alt, time_alt_proj = solve_alt_proj_halpern(x0, y, Q, env, ϵ, target)
+# 	@show violation_alt[end], time_alt_proj, iter_alt
+
+# 	# time_cimmino = @elapsed x_cimmino, violation_cimmino, iter_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
+# 	x_cimmino, violation_cimmino, iter_cimmino, time_cimmino = solve_cimmino_halpern(x0, y, Q, env, ϵ, target)
+# 	@show violation_cimmino[end], time_cimmino, iter_cimmino
+
+# 	# x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
+# 	x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, env, ϵ, target)
+# 	@show violation_sccrm[end], time_sccrm, iter_sccrm
+
+# 	x_crm, violation_crm, iter_crm, time_crm = solve_crm_halpern(x0, y, Q, env, ϵ, target)
+# 	@show violation_crm[end], time_crm, iter_crm
+
+# 	# x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, 0.1, y, Q, k, env, target)
+# 	x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, ϵ, y, Q, env, target)
+# 	@show violation_dijkstra[end], time_dijkstra, iter_dijkstra
+
+# 	println("\tA3PM: $time_a3pm s, iter = $iter_a3pm, violation = $(violation_a3pm[end])")
+# 	println("\tAlt Proj: $time_alt_proj s, iter = $iter_alt, violation = $(violation_alt[end])")
+# 	println("\tCimmino: $time_cimmino s, iter = $iter_cimmino, violation = $(violation_cimmino[end])")
+# 	println("\tSC CRM: $time_sccrm s, iter = $iter_sccrm, violation = $(violation_sccrm[end])")
+# 	println("\tDijkstra: $time_dijkstra s, iter = $iter_dijkstra, violation = $(violation_dijkstra[end])")
+# 	println("\tCRM: $time_crm s, iter = $iter_crm, violation = $(violation_crm[end])")
+# end
+
+
+
+function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Real, df::DataFrame)
 	env = Gurobi.Env()
 	y = zeros(k, m)
 	Q = zeros(k, m, n)
@@ -968,29 +978,65 @@ function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Re
 	println("\tTarget found!")
 
 
-	x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, ϵ, target, true)
 
-	x_3pm, violation_3pm, iter_3pm, time_3pm = solve_3pm_halpern(x0, y, Q, max_iter, env, ϵ, target)
-	@show violation_3pm[end], time_3pm, iter_3pm
+  
+    @info "Running A3PM..."
+    # x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, k, ϵ, target)
+    x_a3pm, violation_a3pm, iter_a3pm, _ = solve_a3pm_halpern(x0, y, Q, ϵ, target)
+	@info "Timing A3PM..."
+    time_a3pm = @belapsed solve_a3pm_halpern($x0, $y, $Q, $ϵ, $target)
+    @show violation_a3pm[end], time_a3pm, iter_a3pm
+	push!(df, (k, n, m, "A3PM", time_a3pm, iter_a3pm, violation_a3pm[end]))
 
-	# time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
-	x_alt_proj, violation_alt, iter_alt, time_alt_proj = solve_alt_proj_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_alt[end], time_alt_proj, iter_alt
+    @info "Running 3PM..."
+    # x_3pm, violation_3pm, iter_3pm, time_3pm = solve_3pm_halpern(x0, y, Q, max_iter, env, ϵ, target)
+    x_3pm, violation_3pm, iter_3pm, _ = solve_3pm_halpern(x0, y, Q, max_iter, env, ϵ, target)
+	@info "Timing 3PM..."
+    time_3pm = @belapsed solve_3pm_halpern($x0, $y, $Q, $max_iter, $env, $ϵ, $target)
+    @show violation_3pm[end], time_3pm, iter_3pm
+    push!(df, (k, n, m, "3PM", time_3pm, iter_3pm, violation_3pm[end]))
 
-	# time_cimmino = @elapsed x_cimmino, violation_cimmino, iter_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
-	x_cimmino, violation_cimmino, iter_cimmino, time_cimmino = solve_cimmino_halpern(x0, y, Q, env, ϵ, target, true)
-	@show violation_cimmino[end], time_cimmino, iter_cimmino
 
-	# x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
-	x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_sccrm[end], time_sccrm, iter_sccrm
 
-	x_crm, violation_crm, iter_crm, time_crm = solve_crm_halpern(x0, y, Q, env, ϵ, target)
-	@show violation_crm[end], time_crm, iter_crm
+    @info "Running Alternating Projections..."
+    # time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
+    x_alt_proj, violation_alt, iter_alt, _  = solve_alt_proj_halpern(x0, y, Q, env, ϵ, target)
+	@info "Timing Alternating Projections..."
+    time_alt_proj = @belapsed solve_alt_proj_halpern($x0, $y, $Q, $env, $ϵ, $target)
+    @show violation_alt[end], time_alt_proj, iter_alt
+	push!(df, (k, n, m, "AltProj", time_alt_proj, iter_alt, violation_alt[end]))
 
+    @info "Running Cimmino..."
+    # time_cimmino = @elapsed x_cimmino, violation_cimmino, iter_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
+    x_cimmino, violation_cimmino, iter_cimmino, _ = solve_cimmino_halpern(x0, y, Q, env, ϵ, target)
+	@info "Timing Cimmino..."
+    time_cimmino = @belapsed solve_cimmino_halpern($x0, $y, $Q, $env, $ϵ, $target)
+    @show violation_cimmino[end], time_cimmino, iter_cimmino
+	push!(df, (k, n, m, "Cimmino", time_cimmino, iter_cimmino, violation_cimmino[end]))
+
+    @info "Running SC CRM..."
+    # x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
+    x_sccrm, violation_sccrm, iter_sccrm, _ = solve_sc_crm_halpern(x0, y, Q, env, ϵ, target)
+	@info "Timing SC CRM..."
+    time_sccrm = @belapsed solve_sc_crm_halpern($x0, $y, $Q, $env, $ϵ, $target)
+    @show violation_sccrm[end], time_sccrm, iter_sccrm
+	push!(df, (k, n, m, "SC CRM", time_sccrm, iter_sccrm, violation_sccrm[end]))
+
+
+    @info "Running CRM..."
+    x_crm, violation_crm, iter_crm, _ = solve_crm_halpern(x0, y, Q, env, ϵ, target)
+	@info "Timing CRM..."
+    time_crm = @belapsed solve_crm_halpern($x0, $y, $Q, $env, $ϵ, $target)
+    @show violation_crm[end], time_crm, iter_crm
+	push!(df, (k, n, m, "CRM", time_crm, iter_crm, violation_crm[end]))
+
+    @info "Running Dijkstra..."
 	# x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, 0.1, y, Q, k, env, target)
-	x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, ϵ, y, Q, env, target)
-	@show violation_dijkstra[end], time_dijkstra, iter_dijkstra
+    x_dijkstra, violation_dijkstra, iter_dijkstra, _ = solve_dijkstra(x0, ϵ, y, Q, env, target)
+	@info "Timing Dijkstra..."
+    time_dijkstra = @belapsed solve_dijkstra($x0, $ϵ, $y, $Q, $env, $target)
+    @show violation_dijkstra[end], time_dijkstra, iter_dijkstra
+	push!(df, (k, n, m, "Dijkstra", time_dijkstra, iter_dijkstra, violation_dijkstra[end]))
 
 	println("\tA3PM: $time_a3pm s, iter = $iter_a3pm, violation = $(violation_a3pm[end])")
 	println("\t3PM: $time_3pm s, iter = $iter_3pm")
@@ -1002,6 +1048,7 @@ function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Re
 
 
 	# savefig(p2, "violations.pdf")
+	return df
 end
 
 function test_find_circuncenter(m, n)
@@ -1041,8 +1088,11 @@ function main()
 	alphas = [1.0]
 	ns = [10, 10, 10, 10, 20, 100]
 	ms = [10, 10, 10, 10, 20, 100]
-	ks = [20, 10, 5, 3, 20, 20]
-
+	ks = [20, 10, 5, 3]
+	df = DataFrame(k=UInt[], n=UInt[], m=UInt[], method=String[], time=Float64[], iter=UInt[], violation=Float64[])
+    # ns = [10]
+    # ms = [10]
+    # ks = [3]
 
 	# for i in eachindex(ns)
 	#     n = ns[i]
@@ -1056,9 +1106,11 @@ function main()
 			n = ns[i]
 			m = ms[i]
 			println("Testing alpha = $alpha n = $n, m = $m, k = $k")
-			test_cutting_plane(k, n, m, max_iter, alpha)
+			test_cutting_plane(k, n, m, max_iter, alpha, df)
 		end
 	end
+	timestamp = Dates.format(now(), "yyyy-mm-dd_HH-MM-SS")
+	CSV.write("$(timestamp)_cutting_plane_results_.csv", df)
 	# sleep(1)
 	# test_find_circuncenter(m, n)
 end
