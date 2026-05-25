@@ -3,6 +3,10 @@ using JuMP
 using LinearAlgebra
 using Random
 using Base.Threads
+using BenchmarkTools
+
+
+
 ENV["JULIA_NUM_THREADS"] = 12
 # include("plot.jl")
 include("util.jl")
@@ -15,7 +19,7 @@ using Printf
 
 const EPS = 1e-5
 const mt = true
-
+const FAST_METHOD_REPS = 10
 
 
 
@@ -946,6 +950,15 @@ function test_cutting_plane2(n::UInt)
 	println("\tCRM: $time_crm s, iter = $iter_crm, violation = $(violation_crm[end])")
 end
 
+function measure_fast_method_time(f::Function, first_run_time::Real, reps::Int = FAST_METHOD_REPS)
+	total = first_run_time
+	for _ in 2:reps
+		total += @belapsed $f() evals = 1 samples = 1
+	end
+	return total / reps
+	return first_run_time
+end
+
 
 function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	env = Gurobi.Env()
@@ -967,29 +980,32 @@ function test_cutting_plane(k::UInt, n::UInt, m::UInt, max_iter::UInt, alpha::Re
 	target = projection_intersection_polyhedron(x0, y, Q, 0.1, env)
 	println("\tTarget found!")
 
-
 	x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, ϵ, target, true)
+	time_a3pm = measure_fast_method_time(() -> solve_a3pm_halpern(x0, y, Q, k, max_iter, env, ϵ, target), time_a3pm)
+	@show violation_a3pm[end], time_a3pm, iter_a3pm
 
 	x_3pm, violation_3pm, iter_3pm, time_3pm = solve_3pm_halpern(x0, y, Q, max_iter, env, ϵ, target)
+	time_3pm = measure_fast_method_time(() -> solve_3pm_halpern(x0, y, Q, max_iter, env, ϵ, target), time_3pm)
 	@show violation_3pm[end], time_3pm, iter_3pm
 
-	# time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
 	x_alt_proj, violation_alt, iter_alt, time_alt_proj = solve_alt_proj_halpern(x0, y, Q, env, ϵ, target)
+	time_alt_proj = measure_fast_method_time(() -> solve_alt_proj_halpern(x0, y, Q, env, ϵ, target), time_alt_proj)
 	@show violation_alt[end], time_alt_proj, iter_alt
 
-	# time_cimmino = @elapsed x_cimmino, violation_cimmino, iter_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
 	x_cimmino, violation_cimmino, iter_cimmino, time_cimmino = solve_cimmino_halpern(x0, y, Q, env, ϵ, target, true)
+	time_cimmino = measure_fast_method_time(() -> solve_cimmino_halpern(x0, y, Q, env, ϵ, target, true), time_cimmino)
 	@show violation_cimmino[end], time_cimmino, iter_cimmino
 
-	# x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
 	x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, env, ϵ, target)
+	time_sccrm = measure_fast_method_time(() -> solve_sc_crm_halpern(x0, y, Q, env, ϵ, target), time_sccrm)
 	@show violation_sccrm[end], time_sccrm, iter_sccrm
 
 	x_crm, violation_crm, iter_crm, time_crm = solve_crm_halpern(x0, y, Q, env, ϵ, target)
+	time_crm = measure_fast_method_time(() -> solve_crm_halpern(x0, y, Q, env, ϵ, target), time_crm)
 	@show violation_crm[end], time_crm, iter_crm
 
-	# x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, 0.1, y, Q, k, env, target)
 	x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, ϵ, y, Q, env, target)
+	time_dijkstra = measure_fast_method_time(() -> solve_dijkstra(x0, ϵ, y, Q, env, target), time_dijkstra)
 	@show violation_dijkstra[end], time_dijkstra, iter_dijkstra
 
 	println("\tA3PM: $time_a3pm s, iter = $iter_a3pm, violation = $(violation_a3pm[end])")

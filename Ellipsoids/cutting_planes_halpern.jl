@@ -3,6 +3,7 @@ using JuMP
 using LinearAlgebra
 using Random
 using Base.Threads
+using BenchmarkTools
 
 # include("plot.jl")
 include("util.jl")
@@ -14,6 +15,7 @@ using Printf
 const EPS = 1e-5
 # set JULIA_NUM_THREADS=12
 const mt = true
+const FAST_METHOD_REPS = 10
 
 
 
@@ -960,6 +962,14 @@ function solve_crm_halpern(x0::AbstractVector, y::AbstractMatrix, Q::AbstractArr
 	return z, violation, iter, time() - t_start
 end
 
+function measure_fast_method_time(f::Function, first_run_time::Real, reps::Int = FAST_METHOD_REPS)
+	total = first_run_time
+	for _ in 2:reps
+		total += @belapsed $f() evals = 1 samples = 1
+	end
+	return total / reps
+	return first_run_time
+end
 
 function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	env = Gurobi.Env()
@@ -1026,10 +1036,10 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 
 	# p2 = plot()
 
-	x_3pm, violation_3pm, iter_3pm, time_3pm = solve_3pm_halpern(x0, y, Q, k, max_iter, env, ϵ, target)
-
-
+	x_3pm, violation_3pm, iter_3pm, time_3pm_raw = solve_3pm_halpern(x0, y, Q, k, max_iter, env, ϵ, target)
+	time_3pm = measure_fast_method_time(() -> solve_3pm_halpern(x0, y, Q, k, max_iter, env, ϵ, target), time_3pm_raw)
 	@show violation_3pm[end]
+
 	# plot!(p2, 1:length(violation_3pm), violation_3pm, label = "3PM", lw = 2)
 	# if n == 2
 	# 	scatter!(p1, [x_3pm[1]], [x_3pm[2]],
@@ -1038,8 +1048,13 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# 		color = :blue,
 	# 		markersize = 6)
 	# end
+
 	x_a3pm, violation_a3pm, iter_a3pm, time_a3pm = solve_a3pm_halpern(x0, y, Q, k, 0.1, target)
+	time_a3pm = measure_fast_method_time(() -> solve_a3pm_halpern(x0, y, Q, k, 0.1, target), time_a3pm)
 	@show violation_a3pm[end], time_a3pm, iter_a3pm
+
+
+
 	# plot!(p2, 1:length(violation_a3pm), violation_a3pm, label = "A3PM", lw = 2)
 	# if n == 2
 	# 	scatter!(p1, [x_a3pm[1]], [x_a3pm[2]],
@@ -1051,6 +1066,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 
 	# time_alt_proj = @elapsed x_alt_proj, violation_alt, iter_alt = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
 	x_alt_proj, violation_alt, iter_alt, time_alt_proj = solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target)
+	time_alt_proj = measure_fast_method_time(() -> solve_alt_proj_halpern(x0, y, Q, k, env, 0.1, target), time_alt_proj)
 	@show violation_alt[end], time_alt_proj, iter_alt
 	# plot!(p2, 1:length(violation_alt), violation_alt, label = "alt_proj", lw = 2)
 	# if n == 2
@@ -1062,6 +1078,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# end
 
 	x_cimmino, violation_cimmino, iter_cimmino, time_cimmino = solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target)
+	time_cimmino = measure_fast_method_time(() -> solve_cimmino_halpern(x0, y, Q, k, env, ϵ, target), time_cimmino)
 	@show violation_cimmino[end], time_cimmino, iter_cimmino
 	# plot!(p2, 1:length(violation_cimmino), violation_cimmino, label = "cimmino", lw = 2)
 	# if n == 2
@@ -1073,6 +1090,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# end
 
 	x_sccrm, violation_sccrm, iter_sccrm, time_sccrm = solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target)
+	time_sccrm = measure_fast_method_time(() -> solve_sc_crm_halpern(x0, y, Q, k, env, 0.1, target), time_sccrm)
 	@show violation_sccrm[end], time_sccrm, iter_sccrm
 	# plot!(p2, 1:length(violation_sccrm), violation_sccrm, label = "sccrm", lw = 2)
 	# if n == 2
@@ -1084,6 +1102,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# end
 
 	x_crm, violation_crm, iter_crm, time_crm = solve_crm_halpern(x0, y, Q, k, env, 0.1, target)
+	time_crm = measure_fast_method_time(() -> solve_crm_halpern(x0, y, Q, k, env, 0.1, target), time_crm)
 	@show violation_crm[end], time_crm, iter_crm
 	# plot!(p2, 1:length(violation_crm), violation_crm, label = "crm", lw = 2)
 	# if n == 2
@@ -1107,6 +1126,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# end
 
 	x_dijkstra, violation_dijkstra, iter_dijkstra, time_dijkstra = solve_dijkstra(x0, 0.1, y, Q, k, env, target)
+	time_dijkstra = measure_fast_method_time(() -> solve_dijkstra(x0, 0.1, y, Q, k, env, target), time_dijkstra)
 	@show violation_dijkstra[end], time_dijkstra, iter_dijkstra
 	# plot!(p2, 1:length(violation_dijkstra), violation_dijkstra, label = "dijkstra", lw = 2)
 	# if n == 2
@@ -1128,6 +1148,7 @@ function test_cutting_plane(n::UInt, m::UInt, max_iter::UInt, alpha::Real)
 	# 		markersize = 5)
 	# 	savefig(p1, "projections.pdf")
 	# end
+
 	println("\tA3PM: $time_a3pm s, iter = $iter_a3pm, violation = $(violation_a3pm[end])")
 	println("\t3PM: $time_3pm s, iter = $iter_3pm, violation = $(violation_3pm[end])")
 	println("\tAlt Proj: $time_alt_proj s, iter = $iter_alt, violation = $(violation_alt[end])")
